@@ -1,0 +1,395 @@
+{
+  "info": {
+    "_postman_id": "00000000-0000-4000-8000-000000000002",
+    "name": "SOCRadar - Secureworks Taegis Bridge",
+    "description": "Credential-free endpoint collection. Requests labeled MUTATION must only be used with disposable test data. Import local.example.postman_environment.json and store secrets in local current values.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const read = key => pm.environment.get(key) || pm.collectionVariables.get(key) || '';",
+          "// SOCRadar start_date/end_date are EPOCH SECONDS (creation-based). Anything else (empty or a stale YYYY-MM-DD value) is replaced.",
+          "const isEpochSeconds = value => /^\\d+$/.test(String(value));",
+          "const epochNow = Math.floor(Date.now() / 1000);",
+          "if (!isEpochSeconds(read('end_date'))) pm.environment.set('end_date', String(epochNow));",
+          "if (!isEpochSeconds(read('start_date'))) pm.environment.set('start_date', String(epochNow - 7 * 86400));",
+          "if (pm.info.requestName.startsWith('MUTATION')) {",
+          "  if (read('allow_mutations') !== 'I_ACKNOWLEDGE_LIVE_MUTATION') throw new Error('Blocked: set allow_mutations to I_ACKNOWLEDGE_LIVE_MUTATION for an approved disposable test only.');",
+          "  if (!/^\\d+$/.test(read('socradar_alarm_id'))) throw new Error('Blocked: socradar_alarm_id must be an approved numeric disposable alarm ID.');",
+          "  if (!/^\\d+$/.test(read('socradar_company_id'))) throw new Error('Blocked: socradar_company_id must be numeric.');",
+          "  if (/(Update|Close|Archive)/.test(pm.info.requestName) && !read('taegis_case_id')) throw new Error('Blocked: taegis_case_id is required.');",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.test('HTTP status is successful', () => pm.expect(pm.response.code).to.be.within(200, 299));",
+          "let body = null;",
+          "try { body = pm.response.json(); } catch (error) { body = null; }",
+          "const requestUrl = pm.request.url.toString();",
+          "if (requestUrl.includes('/graphql')) {",
+          "  pm.test('GraphQL response has no errors', () => pm.expect(body && body.errors).to.be.undefined);",
+          "  pm.test('GraphQL response contains data', () => pm.expect(body && body.data).to.be.an('object'));",
+          "}",
+          "if (requestUrl.includes('/incidents/v4')) {",
+          "  pm.test('SOCRadar confirms success', () => pm.expect(body && body.is_success).to.eql(true));",
+          "  pm.test('SOCRadar response contains data', () => pm.expect(body && body.data).to.be.an('object'));",
+          "  pm.test('SOCRadar response exposes total_records', () => {",
+          "    const data = (body && body.data) || {};",
+          "    const total = data.total_records !== undefined ? data.total_records : (data.pagination ? data.pagination.total_count : undefined);",
+          "    pm.expect(total, 'total_records / pagination.total_count').to.not.be.undefined;",
+          "  });",
+          "}",
+          "if (requestUrl.includes('/http-endpoint/v1/')) {",
+          "  pm.test('Taegis HTTP ingest accepted the event', () => pm.expect(pm.response.code).to.eql(200));",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "SOCRadar",
+      "item": [
+        {
+          "name": "List unresolved alarms - status OPEN",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "API-Key", "value": "{{socradar_api_key}}", "type": "text"}],
+            "url": {
+              "raw": "{{socradar_base_url}}/company/{{socradar_company_id}}/incidents/v4?page=1&limit=100&include_total_records=true&status=OPEN&start_date={{start_date}}&end_date={{end_date}}",
+              "host": ["{{socradar_base_url}}"],
+              "path": ["company", "{{socradar_company_id}}", "incidents", "v4"],
+              "query": [
+                {"key": "page", "value": "1"},
+                {"key": "limit", "value": "100"},
+                {"key": "include_total_records", "value": "true"},
+                {"key": "status", "value": "OPEN"},
+                {"key": "start_date", "value": "{{start_date}}"},
+                {"key": "end_date", "value": "{{end_date}}"}
+              ]
+            },
+            "description": "Read-only. Unresolved view, part 1 of 2. The live API ignores is_resolved; the real filter is status with exactly one value (OPEN | CLOSED | ON_HOLD, a comma list returns 500). start_date/end_date are EPOCH SECONDS on creation time and mandatory: without them the API silently applies a ~30-day window, so a dateless request is never a full scan. start_date=0 gives a true all-time scan. Paginate and verify total_records per status view; an alarm key seen in both the OPEN and ON_HOLD views means data corruption (fail closed)."
+          }
+        },
+        {
+          "name": "List unresolved alarms - status ON_HOLD",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "API-Key", "value": "{{socradar_api_key}}", "type": "text"}],
+            "url": {
+              "raw": "{{socradar_base_url}}/company/{{socradar_company_id}}/incidents/v4?page=1&limit=100&include_total_records=true&status=ON_HOLD&start_date={{start_date}}&end_date={{end_date}}",
+              "host": ["{{socradar_base_url}}"],
+              "path": ["company", "{{socradar_company_id}}", "incidents", "v4"],
+              "query": [
+                {"key": "page", "value": "1"},
+                {"key": "limit", "value": "100"},
+                {"key": "include_total_records", "value": "true"},
+                {"key": "status", "value": "ON_HOLD"},
+                {"key": "start_date", "value": "{{start_date}}"},
+                {"key": "end_date", "value": "{{end_date}}"}
+              ]
+            },
+            "description": "Read-only. Unresolved view, part 2 of 2: ON_HOLD alarms count toward the unresolved side (unresolved total = OPEN total + ON_HOLD total) and their status field comes back as INVESTIGATING. Same epoch-second date rules as the OPEN request; paginate and verify total_records separately for this view."
+          }
+        },
+        {
+          "name": "List resolved alarms - status CLOSED",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "API-Key", "value": "{{socradar_api_key}}", "type": "text"}],
+            "url": {
+              "raw": "{{socradar_base_url}}/company/{{socradar_company_id}}/incidents/v4?page=1&limit=100&include_total_records=true&status=CLOSED&start_date={{start_date}}&end_date={{end_date}}",
+              "host": ["{{socradar_base_url}}"],
+              "path": ["company", "{{socradar_company_id}}", "incidents", "v4"],
+              "query": [
+                {"key": "page", "value": "1"},
+                {"key": "limit", "value": "100"},
+                {"key": "include_total_records", "value": "true"},
+                {"key": "status", "value": "CLOSED"},
+                {"key": "start_date", "value": "{{start_date}}"},
+                {"key": "end_date", "value": "{{end_date}}"}
+              ]
+            },
+            "description": "Read-only. Resolved view: records return granular status values (RESOLVED / FALSE_POSITIVE / MITIGATED). Same epoch-second date rules; a key seen here and in an unresolved view is a transitional overlap where resolved wins."
+          }
+        },
+        {
+          "name": "MUTATION - Change alarm status (future reverse sync)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "API-Key", "value": "{{socradar_api_key}}", "type": "text"},
+              {"key": "Content-Type", "value": "application/json", "type": "text"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"alarm_ids\": [{{socradar_alarm_id}}],\n  \"status\": 2,\n  \"comments\": \"Closed from a disposable Taegis integration test\"\n}",
+              "options": {"raw": {"language": "json"}}
+            },
+            "url": "{{socradar_base_url}}/company/{{socradar_company_id}}/alarms/status/change",
+            "description": "Not used by the default one-way bridge. Run only against a disposable test alarm."
+          }
+        },
+        {
+          "name": "MUTATION - Change alarm severity (future reverse sync)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "API-Key", "value": "{{socradar_api_key}}", "type": "text"},
+              {"key": "Content-Type", "value": "application/json", "type": "text"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"alarm_id\": {{socradar_alarm_id}},\n  \"severity\": \"HIGH\"\n}",
+              "options": {"raw": {"language": "json"}}
+            },
+            "url": "{{socradar_base_url}}/company/{{socradar_company_id}}/alarm/severity",
+            "description": "Uses the locally documented singular alarm_id and uppercase severity contract. Validate live before any reverse sync."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Taegis authentication",
+      "item": [
+        {
+          "name": "Get OAuth access token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('access token returned', () => pm.expect(body.access_token).to.be.a('string'));",
+                  "if (body.access_token) pm.environment.set('taegis_access_token', body.access_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {"key": "username", "value": "{{taegis_client_id}}", "type": "string"},
+                {"key": "password", "value": "{{taegis_client_secret}}", "type": "string"}
+              ]
+            },
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json", "type": "text"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grant_type\": \"client_credentials\"\n}",
+              "options": {"raw": {"language": "json"}}
+            },
+            "url": "{{taegis_base_url}}/auth/api/v2/auth/token"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Taegis Investigation v2 Cases",
+      "item": [
+        {
+          "name": "List all SOCRadar Cases (paginated bridge query)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{taegis_access_token}}", "type": "text"},
+              {"key": "X-Tenant-Context", "value": "{{taegis_tenant_id}}", "type": "text"},
+              {"key": "Content-Type", "value": "application/json", "type": "text"}
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query investigationsV2($arguments: InvestigationsV2Arguments!) { investigationsV2(arguments: $arguments) { investigations { id shortId title status priority tags keyFindings serviceDeskId serviceDeskType updatedAt } totalCount } }",
+                "variables": "{\n  \"arguments\": {\n    \"cql\": \"tags = 'SOCRadar'\",\n    \"page\": 1,\n    \"perPage\": 100\n  }\n}"
+              }
+            },
+            "url": "{{taegis_base_url}}/graphql",
+            "description": "Read-only. Repeat pages until fetched count equals totalCount."
+          }
+        },
+        {
+          "name": "Search Case by SOCRadar alarm tag",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{taegis_access_token}}", "type": "text"},
+              {"key": "X-Tenant-Context", "value": "{{taegis_tenant_id}}", "type": "text"},
+              {"key": "Content-Type", "value": "application/json", "type": "text"}
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query investigationsV2($arguments: InvestigationsV2Arguments!) { investigationsV2(arguments: $arguments) { investigations { id shortId title status priority tags keyFindings serviceDeskId serviceDeskType updatedAt } totalCount } }",
+                "variables": "{\n  \"arguments\": {\n    \"cql\": \"tags = 'socradar-company-{{socradar_company_id}}-alarm-{{socradar_alarm_id}}'\",\n    \"page\": 1,\n    \"perPage\": 2\n  }\n}"
+              }
+            },
+            "url": "{{taegis_base_url}}/graphql"
+          }
+        },
+        {
+          "name": "Get Case by ID",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{taegis_access_token}}", "type": "text"},
+              {"key": "X-Tenant-Context", "value": "{{taegis_tenant_id}}", "type": "text"},
+              {"key": "Content-Type", "value": "application/json", "type": "text"}
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query investigationV2($arguments: InvestigationV2Arguments!) { investigationV2(arguments: $arguments) { id shortId title status priority tags keyFindings serviceDeskId serviceDeskType updatedAt } }",
+                "variables": "{\n  \"arguments\": {\n    \"id\": \"{{taegis_case_id}}\"\n  }\n}"
+              }
+            },
+            "url": "{{taegis_base_url}}/graphql"
+          }
+        },
+        {
+          "name": "MUTATION - Create disposable Case",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('GraphQL has no errors', () => pm.expect(body.errors).to.be.undefined);",
+                  "const created = body.data && body.data.createInvestigationV2;",
+                  "if (created && created.id) pm.environment.set('taegis_case_id', created.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{taegis_access_token}}", "type": "text"},
+              {"key": "X-Tenant-Context", "value": "{{taegis_tenant_id}}", "type": "text"},
+              {"key": "Content-Type", "value": "application/json", "type": "text"}
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation createInvestigationV2($input: CreateInvestigationInput!) { createInvestigationV2(input: $input) { id shortId title status priority tags keyFindings serviceDeskId serviceDeskType updatedAt } }",
+                "variables": "{\n  \"input\": {\n    \"title\": \"[TEST][SOCRadar] #{{socradar_alarm_id}} - Disposable integration test\",\n    \"assigneeId\": \"@customer\",\n    \"status\": \"OPEN\",\n    \"keyFindings\": \"Sanitized disposable integration test\",\n    \"priority\": 1,\n    \"type\": \"SECURITY_INVESTIGATION\",\n    \"tags\": [\"SOCRadar\", \"IntegrationTest\", \"socradar-company-{{socradar_company_id}}-alarm-{{socradar_alarm_id}}\"],\n    \"serviceDeskId\": \"https://platform.socradar.com/company/{{socradar_company_id}}/alarm/{{socradar_alarm_id}}?id={{socradar_alarm_id}}\",\n    \"serviceDeskType\": \"SOCRADAR\"\n  }\n}"
+              }
+            },
+            "url": "{{taegis_base_url}}/graphql",
+            "description": "Creates a real Case. Use only in the approved disposable test sequence."
+          }
+        },
+        {
+          "name": "MUTATION - Update disposable Case",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{taegis_access_token}}", "type": "text"},
+              {"key": "X-Tenant-Context", "value": "{{taegis_tenant_id}}", "type": "text"},
+              {"key": "Content-Type", "value": "application/json", "type": "text"}
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation updateInvestigationV2($input: UpdateInvestigationV2Input!) { updateInvestigationV2(input: $input) { id shortId title status priority tags keyFindings serviceDeskId updatedAt } }",
+                "variables": "{\n  \"input\": {\n    \"id\": \"{{taegis_case_id}}\",\n    \"status\": \"ACTIVE\",\n    \"priority\": 2,\n    \"keyFindings\": \"Sanitized updated disposable test\",\n    \"tags\": [\"SOCRadar\", \"IntegrationTest\", \"socradar-company-{{socradar_company_id}}-alarm-{{socradar_alarm_id}}\"]\n  }\n}"
+              }
+            },
+            "url": "{{taegis_base_url}}/graphql"
+          }
+        },
+        {
+          "name": "MUTATION - Close disposable Case",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{taegis_access_token}}", "type": "text"},
+              {"key": "X-Tenant-Context", "value": "{{taegis_tenant_id}}", "type": "text"},
+              {"key": "Content-Type", "value": "application/json", "type": "text"}
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation closeInvestigation($input: CloseInvestigationInput!) { closeInvestigation(input: $input) { id shortId title status closeReason updatedAt } }",
+                "variables": "{\n  \"input\": {\n    \"id\": \"{{taegis_case_id}}\",\n    \"reason\": \"Disposable SOCRadar integration acceptance test completed\",\n    \"status\": \"CLOSED_INFORMATIONAL\"\n  }\n}"
+              }
+            },
+            "url": "{{taegis_base_url}}/graphql"
+          }
+        },
+        {
+          "name": "MUTATION - Archive closed disposable Case",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{taegis_access_token}}", "type": "text"},
+              {"key": "X-Tenant-Context", "value": "{{taegis_tenant_id}}", "type": "text"},
+              {"key": "Content-Type", "value": "application/json", "type": "text"}
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation archiveInvestigationV2($input: ArchiveInvestigationInput!) { archiveInvestigationV2(input: $input) { id shortId title status archivedAt updatedAt } }",
+                "variables": "{\n  \"input\": {\n    \"id\": \"{{taegis_case_id}}\"\n  }\n}"
+              }
+            },
+            "url": "{{taegis_base_url}}/graphql",
+            "description": "Cleanup step. Taegis only permits archiving a closed Case."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Optional Taegis HTTP Ingest",
+      "item": [
+        {
+          "name": "MUTATION - Send sanitized test log",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{taegis_http_ingest_key}}", "type": "text"},
+              {"key": "Content-Type", "value": "application/json", "type": "text"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_type\": \"integration_test\",\n  \"source\": \"SOCRadar\",\n  \"alarm_id\": \"{{socradar_alarm_id}}\",\n  \"status\": \"OPEN\",\n  \"severity\": \"LOW\",\n  \"title\": \"Sanitized HTTP Ingest test\"\n}",
+              "options": {"raw": {"language": "json"}}
+            },
+            "url": "{{taegis_http_ingest_url}}",
+            "description": "HTTP 200 confirms only asynchronous acceptance, not parsing or Detection creation."
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {"key": "socradar_base_url", "value": "https://platform.socradar.com/api", "type": "string"},
+    {"key": "socradar_company_id", "value": "", "type": "string"},
+    {"key": "socradar_api_key", "value": "", "type": "secret"},
+    {"key": "socradar_alarm_id", "value": "", "type": "string"},
+    {"key": "start_date", "value": "", "type": "string"},
+    {"key": "end_date", "value": "", "type": "string"},
+    {"key": "allow_mutations", "value": "false", "type": "string"},
+    {"key": "taegis_base_url", "value": "https://api.ctpx.secureworks.com", "type": "string"},
+    {"key": "taegis_tenant_id", "value": "", "type": "string"},
+    {"key": "taegis_client_id", "value": "", "type": "string"},
+    {"key": "taegis_client_secret", "value": "", "type": "secret"},
+    {"key": "taegis_basic_auth_base64", "value": "", "type": "secret"},
+    {"key": "taegis_access_token", "value": "", "type": "secret"},
+    {"key": "taegis_case_id", "value": "", "type": "string"},
+    {"key": "taegis_http_ingest_url", "value": "", "type": "string"},
+    {"key": "taegis_http_ingest_key", "value": "", "type": "secret"}
+  ]
+}

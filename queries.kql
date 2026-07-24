@@ -1,0 +1,75 @@
+// IMPORTANT: Resource must equal the workflowName parameter value you deployed.
+// parameters.example.json ships "SOCRadar-Taegis-Bridge-Test" (used below);
+// the main.bicep default is "SOCRadar-Taegis-Bridge". Replace the name in both
+// queries with the workflowName you actually deployed, or the queries return zero rows.
+
+// Logic App run outcomes over the last seven days.
+AzureDiagnostics
+| where TimeGenerated > ago(7d)
+| where ResourceProvider == "MICROSOFT.LOGIC"
+| where Resource =~ "SOCRadar-Taegis-Bridge-Test" // <- replace with your deployed workflowName
+| where OperationName has "workflowRunCompleted"
+| summarize Runs=count() by status_s, bin(TimeGenerated, 1h)
+| order by TimeGenerated desc
+
+// Failed actions. Secure action inputs/outputs are intentionally unavailable.
+AzureDiagnostics
+| where TimeGenerated > ago(7d)
+| where ResourceProvider == "MICROSOFT.LOGIC"
+| where Resource =~ "SOCRadar-Taegis-Bridge-Test" // <- replace with your deployed workflowName
+| where OperationName has "workflowActionCompleted"
+| where status_s =~ "Failed"
+| project TimeGenerated, resource_actionName_s, error_code_s, error_message_s
+| order by TimeGenerated desc
+
+// These diagnostics report platform runtime health only. Alarm-level mapping
+// state and business events (created, updated, closed, drift_after_close,
+// run_summary) are durable in the Azure Table Storage ledger of this solution
+// (tables SocradarTaegisMapping and SocradarTaegisEvents; AAD-only access) and
+// in the VPS SQLite ledger. Ledger tables have no TTL; retention is the
+// documented operator cleanup governed by the ledgerRetentionDays parameter.
+
+// ---------------------------------------------------------------------------
+// Business events. Available only when logAnalyticsWorkspaceResourceId was set
+// at deploy time: the workflow posts audit events plus the run summary to the
+// custom table SOCRadarTaegisBridge_CL through the DCE/DCR logs ingestion API.
+// Telemetry is best-effort; the Azure Table Storage ledger stays the source of
+// evidence. A missing run here with a ledger row means telemetry_post_failed.
+
+// Funnel, last 24 hours: how many alarms were seen, how many Cases were
+// created / updated / closed, how many operations failed, how much drift.
+SOCRadarTaegisBridge_CL
+| where TimeGenerated > ago(24h)
+| summarize
+    AlarmsSeen = dcountif(AlarmId, isnotempty(AlarmId)),
+    CasesCreated = countif(EventType == "created"),
+    CasesUpdated = countif(EventType in ("updated", "updated_before_close")),
+    CasesClosed = countif(EventType == "closed"),
+    Failed = countif(EventType in ("create_failed", "update_failed", "close_failed", "duplicate_mapping", "pre_create_conflict", "pre_update_conflict", "pre_close_conflict", "ledger_write_failed")),
+    Drift = countif(EventType == "drift_after_close")
+
+// Per-run summary, last 7 days: one row per run with its scan window mode.
+SOCRadarTaegisBridge_CL
+| where TimeGenerated > ago(7d)
+| summarize
+    WindowMode = any(WindowMode),
+    Events = count(),
+    Created = countif(EventType == "created"),
+    Updated = countif(EventType in ("updated", "updated_before_close")),
+    Closed = countif(EventType == "closed"),
+    Failed = countif(EventType in ("create_failed", "update_failed", "close_failed", "duplicate_mapping", "pre_create_conflict", "pre_update_conflict", "pre_close_conflict", "ledger_write_failed")),
+    Drift = countif(EventType == "drift_after_close"),
+    RunSummaryRows = countif(EventType == "run_summary")
+    by RunId
+| order by RunId desc
+
+// Trend, last 7 days: daily created / closed / failed / drift.
+SOCRadarTaegisBridge_CL
+| where TimeGenerated > ago(7d)
+| summarize
+    Created = countif(EventType == "created"),
+    Closed = countif(EventType == "closed"),
+    Failed = countif(EventType in ("create_failed", "update_failed", "close_failed", "duplicate_mapping", "pre_create_conflict", "pre_update_conflict", "pre_close_conflict", "ledger_write_failed")),
+    Drift = countif(EventType == "drift_after_close")
+    by bin(TimeGenerated, 1d)
+| order by TimeGenerated asc
