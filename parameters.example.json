@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workflowName": {"value": "SOCRadar-Taegis-Bridge-Test"},
+    "socradarApiKey": {
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/<subscription-id>/resourceGroups/<key-vault-rg>/providers/Microsoft.KeyVault/vaults/<vault-name>"
+        },
+        "secretName": "socradar-api-key"
+      }
+    },
+    "socradarCompanyId": {"value": "<company-id>"},
+    "taegisClientId": {"value": "<client-id>"},
+    "taegisClientSecret": {
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/<subscription-id>/resourceGroups/<key-vault-rg>/providers/Microsoft.KeyVault/vaults/<vault-name>"
+        },
+        "secretName": "taegis-client-secret"
+      }
+    },
+    "taegisTenantId": {"value": "<taegis-tenant-id>"},
+    "taegisBaseUrl": {"value": "https://api.echo.taegis.secureworks.com"},
+    "syncMode": {"value": "apply"},
+    "lookbackDays": {"value": 7},
+    "recurrenceIntervalMinutes": {"value": 15},
+    "overlapMinutes": {"value": 10},
+    "initialLookbackDays": {"value": 1},
+    "reconcileHourUtc": {"value": 6},
+    "reconcileLookbackDays": {"value": 7},
+    "scanStrategy": {"value": "layered"},
+    "backfillClosed": {"value": false},
+    "applyAlarmIds": {"value": []},
+    "applyAllAlarms": {"value": true},
+    "maxMutationsPerRun": {"value": 100},
+    "reopenPolicy": {"value": "manual"},
+    "closeStatusFallback": {"value": "CLOSED_INCONCLUSIVE"},
+    "enableWorkflow": {"value": true},
+    "ledgerRetentionDays": {"value": 90},
+    "createLogAnalyticsWorkspace": {"value": true},
+    "logAnalyticsWorkspaceResourceId": {"value": ""}
+  }
+}
