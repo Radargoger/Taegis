@@ -1,7 +1,7 @@
 # SOCRadar to Secureworks Taegis - Azure
 
 Syncs SOCRadar alarms into Secureworks Taegis Investigation Cases.
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Forcunsami%2FSOCRadar-Taegis-Azure%2Fmaster%2Fazuredeploy.json)
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FRadargoger%2FTaegis%2Fmaster%2Fazuredeploy.json)
 
 Runs as an Azure Consumption Logic App. One alarm becomes one Case.
 When the alarm changes, the Case is updated. When the alarm closes,
